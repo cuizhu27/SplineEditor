@@ -1,0 +1,18 @@
+# Visual Studio Code
+.vscode/
+
+# Build directory
+build/
+
+# 可选：忽略编译生成的可执行文件
+*.exe
+*.dll
+
+# 可选：忽略临时文件
+*.tmp
+*.log
+
+# 可选：忽略IDE特定文件
+*.user
+*.sln
+*.vcxproj*
