@@ -155,4 +155,198 @@ std::vector<glm::vec3> evaluateNURBS(const std::vector<glm::vec3>& controlPoints
     return curve;
 }
 
+
+// ========================
+// 5. Bezier Surface
+// ========================
+std::vector<glm::vec3> evaluateBezierSurface(const std::vector<std::vector<glm::vec3>>& controlPoints, 
+                                           int uSamples, int vSamples) {
+    std::vector<glm::vec3> surfacePoints;
+    if (controlPoints.empty() || controlPoints[0].empty()) return surfacePoints;
+    
+    int n = static_cast<int>(controlPoints.size()) - 1;      // u方向控制点数-1
+    int m = static_cast<int>(controlPoints[0].size()) - 1;   // v方向控制点数-1
+    
+    if (n < 0 || m < 0) return surfacePoints;
+    
+    // 双线性插值计算贝塞尔曲面点
+    for (int i = 0; i <= uSamples; ++i) {
+        float u = static_cast<float>(i) / uSamples;
+        for (int j = 0; j <= vSamples; ++j) {
+            float v = static_cast<float>(j) / vSamples;
+            
+            glm::vec3 point(0.0f);
+            for (int k = 0; k <= n; ++k) {
+                float bernsteinU = bernsteinPolynomial(n, k, u);
+                for (int l = 0; l <= m; ++l) {
+                    float bernsteinV = bernsteinPolynomial(m, l, v);
+                    point += bernsteinU * bernsteinV * controlPoints[k][l];
+                }
+            }
+            surfacePoints.push_back(point);
+        }
+    }
+    
+    return surfacePoints;
+}
+
+// 辅助函数：伯恩斯坦基函数
+float bernsteinPolynomial(int n, int i, float t) {
+    return binomialCoefficient(n, i) * pow(t, i) * pow(1.0f - t, n - i);
+}
+
+// 辅助函数：二项式系数
+int binomialCoefficient(int n, int k) {
+    if (k > n || k < 0) return 0;
+    if (k == 0 || k == n) return 1;
+    
+    int result = 1;
+    for (int i = 0; i < k; ++i) {
+        result = result * (n - i) / (i + 1);
+    }
+    return result;
+}
+
+// ========================
+// 6. B-Spline Surface
+// ========================
+std::vector<glm::vec3> evaluateBSplineSurface(const std::vector<std::vector<glm::vec3>>& controlPoints,
+                                             int degreeU, int degreeV,
+                                             int uSamples, int vSamples) {
+    std::vector<glm::vec3> surfacePoints;
+    if (controlPoints.empty() || controlPoints[0].empty()) return surfacePoints;
+    
+    int n = static_cast<int>(controlPoints.size()) - 1;      // u方向控制点数-1
+    int m = static_cast<int>(controlPoints[0].size()) - 1;   // v方向控制点数-1
+    
+    if (n < 0 || m < 0) return surfacePoints;
+    
+    // 限制次数不超过控制点数-1
+    if (degreeU > n) degreeU = n;
+    if (degreeV > m) degreeV = m;
+    if (degreeU < 1) degreeU = 1;
+    if (degreeV < 1) degreeV = 1;
+    
+    // 生成节点向量
+    auto knotsU = generateClampedKnotVector(n + 1, degreeU);
+    auto knotsV = generateClampedKnotVector(m + 1, degreeV);
+    
+    // 计算曲面点
+    for (int i = 0; i <= uSamples; ++i) {
+        float u = static_cast<float>(i) / uSamples;
+        for (int j = 0; j <= vSamples; ++j) {
+            float v = static_cast<float>(j) / vSamples;
+            
+            glm::vec3 point(0.0f);
+            for (int k = 0; k <= n; ++k) {
+                float basisU = coxDeBoor(k, degreeU, u, knotsU);
+                for (int l = 0; l <= m; ++l) {
+                    float basisV = coxDeBoor(l, degreeV, v, knotsV);
+                    point += basisU * basisV * controlPoints[k][l];
+                }
+            }
+            surfacePoints.push_back(point);
+        }
+    }
+    
+    return surfacePoints;
+}
+
+// ========================
+// 7. NURBS Surface
+// ========================
+std::vector<glm::vec3> evaluateNURBSSurface(const std::vector<std::vector<glm::vec3>>& controlPoints,
+                                           const std::vector<std::vector<float>>& weights,
+                                           int degreeU, int degreeV,
+                                           int uSamples, int vSamples) {
+    std::vector<glm::vec3> surfacePoints;
+    if (controlPoints.empty() || controlPoints[0].empty()) return surfacePoints;
+    if (controlPoints.size() != weights.size() || 
+        (controlPoints.size() > 0 && controlPoints[0].size() != weights[0].size())) {
+        return surfacePoints; // 权重和控制点维度必须一致
+    }
+    
+    int n = static_cast<int>(controlPoints.size()) - 1;      // u方向控制点数-1
+    int m = static_cast<int>(controlPoints[0].size()) - 1;   // v方向控制点数-1
+    
+    if (n < 0 || m < 0) return surfacePoints;
+    
+    // 限制次数不超过控制点数-1
+    if (degreeU > n) degreeU = n;
+    if (degreeV > m) degreeV = m;
+    if (degreeU < 1) degreeU = 1;
+    if (degreeV < 1) degreeV = 1;
+    
+    // 生成节点向量
+    auto knotsU = generateClampedKnotVector(n + 1, degreeU);
+    auto knotsV = generateClampedKnotVector(m + 1, degreeV);
+    
+    // 计算曲面点
+    for (int i = 0; i <= uSamples; ++i) {
+        float u = static_cast<float>(i) / uSamples;
+        for (int j = 0; j <= vSamples; ++j) {
+            float v = static_cast<float>(j) / vSamples;
+            
+            float denominator = 0.0f;
+            glm::vec3 numerator(0.0f);
+            
+            for (int k = 0; k <= n; ++k) {
+                float basisU = coxDeBoor(k, degreeU, u, knotsU);
+                for (int l = 0; l <= m; ++l) {
+                    float basisV = coxDeBoor(l, degreeV, v, knotsV);
+                    float w = weights[k][l];
+                    float weight = w * basisU * basisV;
+                    numerator += weight * controlPoints[k][l];
+                    denominator += weight;
+                }
+            }
+            
+            if (std::abs(denominator) > 1e-6f) {
+                surfacePoints.push_back(numerator / denominator);
+            } else {
+                // 退化情况，使用普通B样条
+                glm::vec3 point(0.0f);
+                for (int k = 0; k <= n; ++k) {
+                    float basisU = coxDeBoor(k, degreeU, u, knotsU);
+                    for (int l = 0; l <= m; ++l) {
+                        float basisV = coxDeBoor(l, degreeV, v, knotsV);
+                        point += basisU * basisV * controlPoints[k][l];
+                    }
+                }
+                surfacePoints.push_back(point);
+            }
+        }
+    }
+    
+    return surfacePoints;
+}
+
+// ========================
+// 8. 生成曲面索引（用于渲染）
+// ========================
+std::vector<unsigned int> generateSurfaceIndices(int uSamples, int vSamples) {
+    std::vector<unsigned int> indices;
+    
+    for (int i = 0; i < uSamples; ++i) {
+        for (int j = 0; j < vSamples; ++j) {
+            unsigned int topLeft = i * (vSamples + 1) + j;
+            unsigned int topRight = topLeft + 1;
+            unsigned int bottomLeft = (i + 1) * (vSamples + 1) + j;
+            unsigned int bottomRight = bottomLeft + 1;
+            
+            // 第一个三角形
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+            
+            // 第二个三角形
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
+        }
+    }
+    
+    return indices;
+}
+
 } // namespace Spline
